@@ -1,0 +1,21 @@
+services:
+  postgres_db:
+    image: postgres:16-alpine
+    container_name: restostock_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: restostock
+      POSTGRES_PASSWORD: restostock
+      POSTGRES_DB: restostock
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U restostock -d restostock"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

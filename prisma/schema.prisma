@@ -1,0 +1,307 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Rol {
+  SUPER_ADMIN
+  COMERCIO
+}
+
+enum Membresia {
+  MENSUAL
+  SEMESTRAL
+  ANUAL
+  SUSPENDIDO
+}
+
+enum TipoStock {
+  FINITO
+  INFINITO
+}
+
+enum MetodoPago {
+  EFECTIVO
+  TARJETA
+  QR
+  TRANSFERENCIA
+  OTRO
+}
+
+enum VentaEstado {
+  COMPLETADA
+  ANULADA
+}
+
+enum TipoAnulacion {
+  TOTAL
+  PARCIAL
+}
+
+enum DestinoProducto {
+  STOCK
+  MERMA
+}
+
+enum CajaEstado {
+  ABIERTA
+  CERRADA
+}
+
+enum TipoMovimiento {
+  VENTA
+  ANULACION
+  SALIDA_MANUAL
+}
+
+enum ResultadoCierre {
+  CUADRADA
+  FALTANTE
+  SOBRANTE
+}
+
+model Comercio {
+  id             String    @id @default(cuid())
+  nombre         String
+  rubro          String
+  nit            String?
+  contacto       String?
+  membresia      Membresia @default(MENSUAL)
+  membresiaHasta DateTime?
+  activo         Boolean   @default(true)
+  logo           String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  usuarios   Usuario[]
+  productos  Producto[]
+  ventas     Venta[]
+  anulaciones Anulacion[]
+  cajas      Caja[]
+  clientes   Cliente[]
+  config     ComercioConfig?
+  resumenesMensuales ResumenMensual[]
+
+  @@map("comercios")
+}
+
+model ComercioConfig {
+  id             String    @id @default(cuid())
+  comercioId     String    @unique
+  comercio       Comercio  @relation(fields: [comercioId], references: [id], onDelete: Cascade)
+  moneda         String    @default("BOB")
+  horaApertura   String?
+  horaCierre     String?
+  createdAt      DateTime  @default(now())
+
+  @@map("comercio_configs")
+}
+
+model Usuario {
+  id           String    @id @default(cuid())
+  comercioId   String?
+  comercio     Comercio? @relation(fields: [comercioId], references: [id], onDelete: Cascade)
+  nombre       String
+  email        String    @unique
+  password     String
+  rol          Rol       @default(COMERCIO)
+  activo       Boolean   @default(true)
+  avatar       String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  ventas       Venta[]
+  anulaciones  Anulacion[]
+  cajasAbiertas Caja[]  @relation("CajaApertura")
+  cierres      CierreCaja[]
+  movimientos  CajaMovimiento[]
+
+  @@index([comercioId])
+  @@map("usuarios")
+}
+
+model Producto {
+  id               String    @id @default(cuid())
+  comercioId       String
+  comercio         Comercio  @relation(fields: [comercioId], references: [id], onDelete: Cascade)
+  nombre           String
+  descripcion      String?
+  precio           Decimal   @db.Decimal(10, 2)
+  tipoStock        TipoStock @default(FINITO)
+  stock            Decimal?  @db.Decimal(12, 3)
+  permiteFracciones Boolean  @default(false)
+  limiteMinimo     Decimal?  @db.Decimal(12, 3)
+  activo           Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  detalles         VentaDetalle[]
+  anulacionDetalles AnulacionDetalle[]
+
+  @@index([comercioId])
+  @@map("productos")
+}
+
+model Venta {
+  id            String       @id @default(cuid())
+  comercioId    String
+  comercio      Comercio     @relation(fields: [comercioId], references: [id], onDelete: Cascade)
+  numero        Int
+  estado        VentaEstado  @default(COMPLETADA)
+  metodoPago    MetodoPago
+  subtotal      Decimal      @db.Decimal(10, 2)
+  total         Decimal      @db.Decimal(10, 2)
+  vendedorId    String
+  vendedor      Usuario      @relation(fields: [vendedorId], references: [id])
+  clienteId     String?
+  cliente       Cliente?     @relation(fields: [clienteId], references: [id])
+  cajaId        String?
+  caja          Caja?        @relation(fields: [cajaId], references: [id])
+  createdAt     DateTime     @default(now())
+
+  detalles      VentaDetalle[]
+  anulaciones   Anulacion[]
+
+  @@unique([comercioId, numero])
+  @@index([comercioId])
+  @@map("ventas")
+}
+
+model VentaDetalle {
+  id             String  @id @default(cuid())
+  ventaId        String
+  venta          Venta   @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  productoId     String?
+  producto       Producto? @relation(fields: [productoId], references: [id])
+  productoNombre String
+  cantidad       Decimal @db.Decimal(12, 3)
+  precioUnitario Decimal @db.Decimal(10, 2)
+  totalLinea     Decimal @db.Decimal(10, 2)
+
+  @@map("venta_detalles")
+}
+
+model Anulacion {
+  id             String        @id @default(cuid())
+  comercioId     String
+  comercio       Comercio      @relation(fields: [comercioId], references: [id], onDelete: Cascade)
+  ventaId        String
+  venta          Venta         @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  tipo           TipoAnulacion
+  motivo         String
+  montoDevuelto  Decimal       @db.Decimal(10, 2)
+  usuarioId      String
+  usuario        Usuario       @relation(fields: [usuarioId], references: [id])
+  createdAt      DateTime      @default(now())
+
+  detalles       AnulacionDetalle[]
+
+  @@index([comercioId])
+  @@map("anulaciones")
+}
+
+model AnulacionDetalle {
+  id             String           @id @default(cuid())
+  anulacionId    String
+  anulacion      Anulacion        @relation(fields: [anulacionId], references: [id], onDelete: Cascade)
+  productoId     String?
+  producto       Producto?        @relation(fields: [productoId], references: [id])
+  productoNombre String
+  cantidad       Decimal          @db.Decimal(12, 3)
+  precioUnitario Decimal          @db.Decimal(10, 2)
+  destino        DestinoProducto  @default(STOCK)
+
+  @@map("anulacion_detalles")
+}
+
+model Caja {
+  id             String       @id @default(cuid())
+  comercioId     String
+  comercio       Comercio     @relation(fields: [comercioId], references: [id], onDelete: Cascade)
+  montoInicial   Decimal      @db.Decimal(10, 2)
+  estado         CajaEstado   @default(ABIERTA)
+  aperturaUsuarioId String
+  aperturaUsuario  Usuario    @relation("CajaApertura", fields: [aperturaUsuarioId], references: [id])
+  abiertaAt      DateTime     @default(now())
+  cerradaAt      DateTime?
+  ventas         Venta[]
+  cierre         CierreCaja?
+  movimientos    CajaMovimiento[]
+
+  @@index([comercioId])
+  @@map("cajas")
+}
+
+model CajaMovimiento {
+  id          String          @id @default(cuid())
+  cajaId      String
+  caja        Caja            @relation(fields: [cajaId], references: [id], onDelete: Cascade)
+  comercioId  String
+  tipo        TipoMovimiento
+  concepto    String
+  monto       Decimal         @db.Decimal(10, 2)
+  usuarioId   String
+  usuario     Usuario         @relation(fields: [usuarioId], references: [id])
+  ventaId     String?
+  createdAt   DateTime        @default(now())
+
+  @@index([cajaId])
+  @@map("caja_movimientos")
+}
+
+model Cliente {
+  id         String   @id @default(cuid())
+  comercioId String
+  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Cascade)
+  nombre     String
+  carnet     String
+  telefono   String?
+  createdAt  DateTime @default(now())
+
+  ventas     Venta[]
+
+  @@unique([comercioId, carnet])
+  @@index([comercioId])
+  @@map("clientes")
+}
+
+model CierreCaja {
+  id             String          @id @default(cuid())
+  cajaId         String          @unique
+  caja           Caja            @relation(fields: [cajaId], references: [id], onDelete: Cascade)
+  comercioId     String
+  montoEsperado  Decimal         @db.Decimal(10, 2)
+  montoContado   Decimal         @db.Decimal(10, 2)
+  diferencia     Decimal         @db.Decimal(10, 2)
+  resultado      ResultadoCierre
+  detalle        String?
+  usuarioId      String
+  usuario        Usuario         @relation(fields: [usuarioId], references: [id])
+  cerradoAt      DateTime        @default(now())
+
+  @@index([comercioId])
+  @@map("cierre_cajas")
+}
+
+model ResumenMensual {
+  id             String   @id @default(cuid())
+  comercioId     String
+  comercio       Comercio @relation(fields: [comercioId], references: [id], onDelete: Cascade)
+  anio           Int
+  mes            Int
+  ventasBrutas   Decimal  @db.Decimal(10, 2)
+  anulaciones    Decimal  @db.Decimal(10, 2)
+  ventasNetas    Decimal  @db.Decimal(10, 2)
+  totalVentas    Int
+  totalAnuladas  Int
+  porMetodoPago  Json
+  createdAt      DateTime @default(now())
+
+  @@unique([comercioId, anio, mes])
+  @@index([comercioId])
+  @@map("resumenes_mensuales")
+}
