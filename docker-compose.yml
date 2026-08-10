@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: restostock
       POSTGRES_DB: restostock
     ports:
-      - "5432:5432"
+      - "5439:5439"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
