@@ -64,6 +64,18 @@ enum ResultadoCierre {
   SOBRANTE
 }
 
+enum EstadoSolicitud {
+  PENDIENTE
+  APROBADA
+  RECHAZADA
+}
+
+enum PlanRenovacion {
+  MENSUAL
+  SEMESTRAL
+  ANUAL
+}
+
 model Comercio {
   id             String    @id @default(cuid())
   nombre         String
@@ -85,6 +97,7 @@ model Comercio {
   clientes   Cliente[]
   config     ComercioConfig?
   resumenesMensuales ResumenMensual[]
+  solicitudesRenovacion SolicitudRenovacion[]
 
   @@map("comercios")
 }
@@ -304,4 +317,32 @@ model ResumenMensual {
   @@unique([comercioId, anio, mes])
   @@index([comercioId])
   @@map("resumenes_mensuales")
+}
+
+model SistemaConfig {
+  id              String   @id @default("global")
+  precioMensual   Int      @default(100)
+  precioSemestral Int      @default(540)
+  precioAnual     Int      @default(960)
+  qrMensual       String?
+  qrSemestral     String?
+  qrAnual         String?
+  updatedAt       DateTime @updatedAt
+
+  @@map("sistema_configs")
+}
+
+model SolicitudRenovacion {
+  id             String          @id @default(cuid())
+  comercioId     String
+  comercio       Comercio        @relation(fields: [comercioId], references: [id], onDelete: Cascade)
+  comercioNombre String
+  plan           PlanRenovacion
+  monto          Int
+  comprobante    String?
+  estado         EstadoSolicitud @default(PENDIENTE)
+  fecha          DateTime        @default(now())
+
+  @@index([comercioId])
+  @@map("solicitudes_renovacion")
 }

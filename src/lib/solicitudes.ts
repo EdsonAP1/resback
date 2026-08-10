@@ -1,56 +1,70 @@
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const FILE_PATH = path.join(__dirname, "../../data/solicitudes_renovacion.json");
+import type { EstadoSolicitud, PlanRenovacion } from "@prisma/client";
+import { prisma } from "../prisma.js";
 
 export type Solicitud = {
   id: string;
   comercioId: string;
   comercioNombre: string;
-  plan: string;
+  plan: PlanRenovacion;
   monto: number;
   comprobante?: string | null;
-  estado: "PENDIENTE" | "APROBADA" | "RECHAZADA";
+  estado: EstadoSolicitud;
   fecha: string;
 };
 
-export function getSolicitudes(): Solicitud[] {
-  try {
-    const dir = path.dirname(FILE_PATH);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    if (!fs.existsSync(FILE_PATH)) {
-      fs.writeFileSync(FILE_PATH, "[]", "utf8");
-      return [];
-    }
-    const data = fs.readFileSync(FILE_PATH, "utf8");
-    return JSON.parse(data);
-  } catch (e) {
-    return [];
-  }
-}
-
-export function saveSolicitudes(list: Solicitud[]) {
-  const dir = path.dirname(FILE_PATH);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  fs.writeFileSync(FILE_PATH, JSON.stringify(list, null, 2), "utf8");
-}
-
-export function addSolicitud(s: Omit<Solicitud, "id" | "fecha" | "estado">): Solicitud {
-  const list = getSolicitudes();
-  const nueva: Solicitud = {
-    ...s,
-    id: Math.random().toString(36).substring(2, 9).toUpperCase(),
-    fecha: new Date().toISOString(),
-    estado: "PENDIENTE",
+function toDto(row: {
+  id: string;
+  comercioId: string;
+  comercioNombre: string;
+  plan: PlanRenovacion;
+  monto: number;
+  comprobante: string | null;
+  estado: EstadoSolicitud;
+  fecha: Date;
+}): Solicitud {
+  return {
+    id: row.id,
+    comercioId: row.comercioId,
+    comercioNombre: row.comercioNombre,
+    plan: row.plan,
+    monto: row.monto,
+    comprobante: row.comprobante,
+    estado: row.estado,
+    fecha: row.fecha.toISOString(),
   };
-  list.unshift(nueva);
-  saveSolicitudes(list);
-  return nueva;
+}
+
+export async function getSolicitudes(): Promise<Solicitud[]> {
+  const rows = await prisma.solicitudRenovacion.findMany({
+    orderBy: { fecha: "desc" },
+  });
+  return rows.map(toDto);
+}
+
+export async function addSolicitud(
+  s: Omit<Solicitud, "id" | "fecha" | "estado">
+): Promise<Solicitud> {
+  const creada = await prisma.solicitudRenovacion.create({
+    data: {
+      comercioId: s.comercioId,
+      comercioNombre: s.comercioNombre,
+      plan: s.plan,
+      monto: s.monto,
+      comprobante: s.comprobante ?? null,
+    },
+  });
+  return toDto(creada);
+}
+
+export async function setSolicitudEstado(
+  id: string,
+  estado: EstadoSolicitud
+): Promise<Solicitud | null> {
+  const existe = await prisma.solicitudRenovacion.findUnique({ where: { id } });
+  if (!existe) return null;
+  const actualizada = await prisma.solicitudRenovacion.update({
+    where: { id },
+    data: { estado },
+  });
+  return toDto(actualizada);
 }

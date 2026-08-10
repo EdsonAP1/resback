@@ -1,4 +1,5 @@
 import { Router } from "express";
+import type { PlanRenovacion } from "@prisma/client";
 import { asyncHandler, AppError } from "../lib/http.js";
 import { requireAuth, tenantId } from "../middleware/auth.js";
 import { getSystemConfig } from "../lib/systemConfig.js";
@@ -11,48 +12,53 @@ export function diasDePlan(clave: string): number {
   return 30; // MENSUAL
 }
 
+const PLANES_VALIDOS: PlanRenovacion[] = ["MENSUAL", "SEMESTRAL", "ANUAL"];
+
 const router = Router();
 
 // Endpoint público/autenticado para obtener planes con precios y QR configurados por el Super Administrador
-router.get("/", (_req, res) => {
-  const config = getSystemConfig();
-  const planesInfo = [
-    {
-      clave: "MENSUAL",
-      nombre: "Mensual",
-      meses: 1,
-      dias: 30,
-      precioMensual: config.precioMensual,
-      descuento: 0,
-      total: config.precioMensual,
-      precioEquivalenteMes: config.precioMensual,
-      qrCode: config.qrMensual,
-    },
-    {
-      clave: "SEMESTRAL",
-      nombre: "Semestral",
-      meses: 6,
-      dias: 180,
-      precioMensual: Math.round(config.precioSemestral / 6),
-      descuento: 0.1,
-      total: config.precioSemestral,
-      precioEquivalenteMes: Math.round(config.precioSemestral / 6),
-      qrCode: config.qrSemestral,
-    },
-    {
-      clave: "ANUAL",
-      nombre: "Anual",
-      meses: 12,
-      dias: 365,
-      precioMensual: Math.round(config.precioAnual / 12),
-      descuento: 0.2,
-      total: config.precioAnual,
-      precioEquivalenteMes: Math.round(config.precioAnual / 12),
-      qrCode: config.qrAnual,
-    },
-  ];
-  res.json(planesInfo);
-});
+router.get(
+  "/",
+  asyncHandler(async (_req, res) => {
+    const config = await getSystemConfig();
+    const planesInfo = [
+      {
+        clave: "MENSUAL",
+        nombre: "Mensual",
+        meses: 1,
+        dias: 30,
+        precioMensual: config.precioMensual,
+        descuento: 0,
+        total: config.precioMensual,
+        precioEquivalenteMes: config.precioMensual,
+        qrCode: config.qrMensual,
+      },
+      {
+        clave: "SEMESTRAL",
+        nombre: "Semestral",
+        meses: 6,
+        dias: 180,
+        precioMensual: Math.round(config.precioSemestral / 6),
+        descuento: 0.1,
+        total: config.precioSemestral,
+        precioEquivalenteMes: Math.round(config.precioSemestral / 6),
+        qrCode: config.qrSemestral,
+      },
+      {
+        clave: "ANUAL",
+        nombre: "Anual",
+        meses: 12,
+        dias: 365,
+        precioMensual: Math.round(config.precioAnual / 12),
+        descuento: 0.2,
+        total: config.precioAnual,
+        precioEquivalenteMes: Math.round(config.precioAnual / 12),
+        qrCode: config.qrAnual,
+      },
+    ];
+    res.json(planesInfo);
+  })
+);
 
 // Endpoint para que el Comercio cree una solicitud de renovación tras realizar el pago
 router.post(
@@ -62,14 +68,14 @@ router.post(
     const comercioId = tenantId(req);
     const { plan, comprobante } = req.body as { plan?: string; comprobante?: string };
 
-    if (!plan || !["MENSUAL", "SEMESTRAL", "ANUAL"].includes(plan)) {
+    if (!plan || !PLANES_VALIDOS.includes(plan as PlanRenovacion)) {
       throw new AppError(400, "Plan seleccionado inválido");
     }
     if (!comprobante) {
       throw new AppError(400, "El comprobante de pago es obligatorio");
     }
 
-    const config = getSystemConfig();
+    const config = await getSystemConfig();
     let monto = config.precioMensual;
     if (plan === "SEMESTRAL") monto = config.precioSemestral;
     if (plan === "ANUAL") monto = config.precioAnual;
@@ -79,16 +85,17 @@ router.post(
     if (!comercio) throw new AppError(404, "Comercio no encontrado");
 
     // Verificar si ya tiene una solicitud pendiente de aprobación
-    const solicitudes = getSolicitudes();
-    const activa = solicitudes.find((s) => s.comercioId === comercioId && s.estado === "PENDIENTE");
+    const activa = await prisma.solicitudRenovacion.findFirst({
+      where: { comercioId, estado: "PENDIENTE" },
+    });
     if (activa) {
       throw new AppError(400, "Ya tienes una solicitud de renovación pendiente de aprobación.");
     }
 
-    const nueva = addSolicitud({
+    const nueva = await addSolicitud({
       comercioId,
       comercioNombre: comercio.nombre,
-      plan,
+      plan: plan as PlanRenovacion,
       monto,
       comprobante,
     });
@@ -107,8 +114,9 @@ router.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     const comercioId = tenantId(req);
-    const solicitudes = getSolicitudes();
-    const activa = solicitudes.find((s) => s.comercioId === comercioId && s.estado === "PENDIENTE");
+    const activa = await prisma.solicitudRenovacion.findFirst({
+      where: { comercioId, estado: "PENDIENTE" },
+    });
     res.json(activa || null);
   })
 );

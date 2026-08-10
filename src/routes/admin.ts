@@ -6,7 +6,7 @@ import { asyncHandler, AppError } from "../lib/http.js";
 import { requireAuth, requireSuperAdmin } from "../middleware/auth.js";
 import { diasDePlan } from "./planes.js";
 import { getSystemConfig, saveSystemConfig } from "../lib/systemConfig.js";
-import { getSolicitudes, saveSolicitudes } from "../lib/solicitudes.js";
+import { getSolicitudes, setSolicitudEstado } from "../lib/solicitudes.js";
 
 const router = Router();
 
@@ -172,7 +172,7 @@ router.patch(
 router.get(
   "/config",
   asyncHandler(async (_req, res) => {
-    res.json(getSystemConfig());
+    res.json(await getSystemConfig());
   })
 );
 
@@ -188,7 +188,7 @@ router.put(
       qrAnual?: string;
     };
 
-    const updated = saveSystemConfig({
+    const updated = await saveSystemConfig({
       ...(precioMensual !== undefined ? { precioMensual: Number(precioMensual) } : {}),
       ...(precioSemestral !== undefined ? { precioSemestral: Number(precioSemestral) } : {}),
       ...(precioAnual !== undefined ? { precioAnual: Number(precioAnual) } : {}),
@@ -205,25 +205,23 @@ router.put(
 router.get(
   "/solicitudes",
   asyncHandler(async (_req, res) => {
-    res.json(getSolicitudes());
+    res.json(await getSolicitudes());
   })
 );
 
 router.post(
   "/solicitudes/:id/procesar",
   asyncHandler(async (req, res) => {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const { accion } = req.body as { accion?: "APROBAR" | "RECHAZAR" };
 
     if (!accion || !["APROBAR", "RECHAZAR"].includes(accion)) {
       throw new AppError(400, "Acción inválida. Debe ser APROBAR o RECHAZAR.");
     }
 
-    const solicitudes = getSolicitudes();
-    const idx = solicitudes.findIndex((s) => s.id === id);
-    if (idx === -1) throw new AppError(404, "Solicitud no encontrada");
+    const solicitud = await prisma.solicitudRenovacion.findUnique({ where: { id } });
+    if (!solicitud) throw new AppError(404, "Solicitud no encontrada");
 
-    const solicitud = solicitudes[idx];
     if (solicitud.estado !== "PENDIENTE") {
       throw new AppError(400, `Esta solicitud ya fue procesada como ${solicitud.estado}.`);
     }
@@ -244,15 +242,13 @@ router.post(
         },
       });
 
-      solicitud.estado = "APROBADA";
+      await setSolicitudEstado(id, "APROBADA");
     } else {
-      solicitud.estado = "RECHAZADA";
+      await setSolicitudEstado(id, "RECHAZADA");
     }
 
-    solicitudes[idx] = solicitud;
-    saveSolicitudes(solicitudes);
-
-    res.json({ status: "success", solicitud });
+    const actualizada = await prisma.solicitudRenovacion.findUnique({ where: { id } });
+    res.json({ status: "success", solicitud: actualizada });
   })
 );
 

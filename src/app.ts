@@ -4,6 +4,7 @@ import type { NextFunction, Request, Response } from "express";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { errorHandler } from "./lib/http.js";
+import { prisma } from "./prisma.js";
 import authRoutes from "./routes/auth.js";
 import productoRoutes from "./routes/productos.js";
 import ventaRoutes from "./routes/ventas.js";
@@ -79,8 +80,17 @@ export function createApp() {
     app.use(`${V1}/auth/login`, loginLimiter);
   }
 
-  app.get("/health", (_req, res) => {
-    res.json({ ok: true, servicio: "RestoStock API", entorno: "local" });
+  app.get("/health", async (_req, res) => {
+    const dbOk = await prisma
+      .$queryRaw`SELECT 1`
+      .then(() => true)
+      .catch(() => false);
+    res.status(dbOk ? 200 : 503).json({
+      ok: dbOk,
+      servicio: "RestoStock API",
+      entorno: process.env.NODE_ENV || "local",
+      db: dbOk ? "ok" : "error",
+    });
   });
 
   app.use(`${V1}/auth`, authRoutes);
