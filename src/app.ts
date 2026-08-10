@@ -16,7 +16,6 @@ import configRoutes from "./routes/config.js";
 import planRoutes from "./routes/planes.js";
 
 const V1 = "/api/v1";
-
 const IS_TEST = process.env.NODE_ENV === "test";
 
 const apiLimiter = rateLimit({
@@ -40,18 +39,11 @@ export function corsWhitelist(
 ): (req: Request, res: Response, next: NextFunction) => void {
   return (req, res, next) => {
     const origin = req.headers.origin;
-    if (!origin) {
-      // Peticiones nativas sin cabecera Origin (Android, curl, etc.): se permiten explícitamente
-      next();
-      return;
-    }
-    if (allowed.includes(origin)) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
-      res.setHeader("Vary", "Origin");
-      res.setHeader(
-        "Access-Control-Allow-Headers",
-        "Content-Type, Authorization"
-      );
+
+    // Si no hay cabecera Origin (peticiones nativas, cURL, etc.) o se permite todo con "*"
+    if (!origin || allowed.includes("*")) {
+      if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
       res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
       if (req.method === "OPTIONS") {
         res.sendStatus(204);
@@ -60,7 +52,28 @@ export function corsWhitelist(
       next();
       return;
     }
-    next(new Error(`Origen no permitido por CORS: ${origin}`));
+
+    if (allowed.includes(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+      
+      if (req.method === "OPTIONS") {
+        res.sendStatus(204);
+        return;
+      }
+      next();
+      return;
+    }
+
+    // Responder preflight OPTIONS con 204 para no romper la negociación
+    if (req.method === "OPTIONS") {
+      res.sendStatus(204);
+      return;
+    }
+
+    res.status(403).json({ error: { code: "CORS_ERROR", message: `Origen no permitido por CORS: ${origin}` } });
   };
 }
 
@@ -71,8 +84,10 @@ export function createApp() {
     .split(",")
     .map((o) => o.trim())
     .filter(Boolean);
-  app.use(helmet());
+
+  // CORS debe ir ANTES de Helmet para responder preflights correctamente
   app.use(corsWhitelist(allowedOrigins));
+  app.use(helmet({ crossOriginResourcePolicy: false }));
   app.use(express.json({ limit: "10mb" }));
 
   if (!IS_TEST) {
